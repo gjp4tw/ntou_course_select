@@ -10,68 +10,88 @@ script1 = "var theForm = document.forms['QUERY'];if (!theForm) {theForm = docume
 def login(driver, config):
     driver.get('https://ais.ntou.edu.tw')
     WebDriverWait(driver, 30).until(EC.visibility_of_element_located((By.ID, 'M_PORTAL_LOGIN_ACNT')))
-    username = driver.find_element_by_id('M_PORTAL_LOGIN_ACNT')
+    username = driver.find_element(By.ID,'M_PORTAL_LOGIN_ACNT')
     username.clear()
     username.send_keys(config['account'])
-    pwd = driver.find_element_by_id('M_PW')
+    pwd = driver.find_element(By.ID,'M_PW')
     pwd.clear()
     pwd.send_keys(config['password'])
-    driver.find_element_by_id('LGOIN_BTN').click()
-
+    driver.find_element(By.ID,'LGOIN_BTN').click()
+    driver.get('https://ais.ntou.edu.tw/title.aspx')
+    WebDriverWait(driver,30).until(EC.presence_of_element_located((By.ID,"USERNAME")))
+    global name
+    name = driver.find_element(By.ID,"USERNAME").text
+    print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())+' [訊息] 登入成功 username: '+name)
 
 def select_courses(driver, config):
-    selectednum = 0
-    for course in config['courses']:
+    selected = set()
+    for index,course in enumerate(config['courses']):
+        if course["課號"] == '' or course["班別"] =='':
+            print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())+" [錯誤] 班別或課號不可為空")
+            selected.add(index)
+        if index in selected:
+            continue
         driver.get('https://ais.ntou.edu.tw/Application/TKE/TKE20/TKE2011_01.aspx')
         WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.ID, 'Div2')))
-        while len(driver.find_elements_by_xpath("//div[@id='Div2']//*[contains(text(),'" + course['課號'] + "')]")) > 0:
-            print(course['課號'] + ' has been added')
-            selectednum += 1
+        if len(driver.find_elements(By.XPATH,"//div[@id='Div2']//*[contains(text(),'" + course['課號'] + "')]")) > 0:
+            print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())+" [訊息] "+course['課號'] + ' has been added')
+            selected.add(index)
+            continue
 
         WebDriverWait(driver, 30).until(EC.element_to_be_clickable((By.ID, 'QUERY_COSID_BTN')))
-        c = driver.find_element_by_name('Q_COSID')
+        c = driver.find_element(By.NAME,'Q_COSID')
         c.clear()
         c.send_keys(course['課號'])
         c.send_keys(Keys.ENTER)
         time.sleep(2)
         WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.ID, 'dv2')))
         WebDriverWait(driver, 30).until(EC.presence_of_element_located((By.XPATH, "//div[@id='dv2']//*[contains(text(),'查無符合資料') or contains(text(),'" + course['課號'] + "')]")))
-        courselist = driver.find_elements_by_xpath("//div[@id='dv2']//tr")[1:]
+        courselist = driver.find_elements(By.XPATH,"//div[@id='dv2']//tr")[1:]
         num = len(courselist)
-        while num == 0:
-            print('查無此課程')
+        if num == 0:
+            print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())+" [錯誤] "+'查無此課程')
+            selected.add(index)
+            continue
 
         for i in range(num):
             course_text = courselist[i].text.split(' ')
-            if course_text[2] == course['課號']:
-                if course_text[3] == course['班別']:
-                    print('[加選中]', course_text[2], course_text[3], course_text[4], course_text[6], course_text[-1])
-                    WebDriverWait(driver, 30).until(EC.element_to_be_clickable((By.XPATH, "//div[@id='dv2']//a[@ml='CL_加選']")))
-                    ii = courselist[i].find_element_by_css_selector('a[ml="CL_加選"]').get_attribute('href').split(':')[1]
-                    driver.execute_script(script1 + ii)
-                    while True:
-                        try:
-                            WebDriverWait(driver, 3).until(EC.alert_is_present())
-                            if EC.alert_is_present():
-                                courselist[i].send_keys(Keys.ENTER)
-                        except:
-                            pass
-
-                    break
-        else:
-            return selectednum
+            if course_text[2] == course['課號'] and course_text[3] == course['班別']:
+                print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())+' [加選] '+course_text[2]+" "+ course_text[3]+" "+ course_text[4]+" "+ course_text[6]+" "+ course_text[-1])
+                WebDriverWait(driver, 30).until(EC.element_to_be_clickable((By.XPATH, "//div[@id='dv2']//a[@ml='CL_加選']")))
+                ii = courselist[i].find_element(By.CSS_SELECTOR,'a[ml="CL_加選"]').get_attribute('href').split(':')[1]
+                driver.execute_script(script1 + ii)
+                while True:
+                    try:
+                        WebDriverWait(driver, 3).until(EC.alert_is_present())
+                        if EC.alert_is_present():
+                            print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())+" [錯誤] "+' '.join(driver.switch_to.alert.text.split()))
+                            #driver.switch_to.alert.accept()
+                            courselist[i].send_keys(Keys.ENTER)
+                    except:
+                        break
+                break
+    return len(selected)
 
 
 def run(config):
+    interval = int(config['interval']) if (config['interval'] and int(config['interval'])>=300) else 300
+    T= time.time()
     while True:
         try:
             op = webdriver.ChromeOptions()
-            driver = webdriver.Chrome(chrome_options=op)
+            op.add_argument('--headless')
+            op.add_argument('--log-level=3')
+            op.add_experimental_option('excludeSwitches', ['enable-logging'])
+            driver = webdriver.Chrome(options=op)
             driver.maximize_window()
             login(driver, config)
             while True:
+                if time.time() - T >=interval:
+                    T=time.time()
+                    print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())+" [訊息] 重新登入")
+                    break
                 if select_courses(driver, config) == len(config['courses']):
-                    print('all courses have been added')
+                    print(time.strftime("%Y-%m-%d %H:%M:%S", time.localtime())+" [訊息] all courses have been added")
                     sys.exit()
                 else:
                     time.sleep(1)
@@ -84,7 +104,7 @@ def run(config):
                 e = None
                 del e
 
-if __name__ == "__main__":
+def start():
     with open('config.yaml', 'r', encoding='UTF-8') as f:
         config = yaml.load(f, Loader=(yaml.FullLoader))
     run(config)
