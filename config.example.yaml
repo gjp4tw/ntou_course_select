@@ -1,5 +1,6 @@
 account: ''
 password: ''
+interval: 300
 courses:
    - {課號: '',班別: ''}
    - {課號: '',班別: ''}
